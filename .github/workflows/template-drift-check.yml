@@ -1,0 +1,159 @@
+# Reports when the canonical template and the copy customers receive diverge.
+#
+# There are three copies of this repository:
+#
+#   whyisjake/agentic-deployment-template on github.com
+#     Canonical. Development happens here, and setup.sh and the README point
+#     at it.
+#   Automattic/agentic-deployment-template on github.com
+#     The copy the Codebase Manager scaffolds into customer repositories. It
+#     has Actions disabled and is updated by fast-forward pushes from the
+#     canonical copy.
+#   Automattic/agentic-deployment-template on github.a8c.com
+#     A source mirror. Nothing in production reads it, and it has no runners.
+#
+# This check compares the first two, because a difference between them is a
+# difference between what we test and what customers get. It runs on the
+# canonical copy, the only one of the three with working runners. Both copies
+# are public on github.com, so no credentials are needed to read the other one.
+#
+# This file lives on all three copies and runs on only one. The job is guarded
+# on the host as well as the repository name: the Automattic name exists on
+# both hosts, so a name-only guard cannot tell them apart. An edit made to one
+# copy alone makes the trees unequal, and then every sync needs a merge commit
+# instead of a fast-forward. Keeping the file identical everywhere avoids that.
+#
+# scripts/setup.sh does not install it. It watches the template's own copies
+# and means nothing inside a customer's repo.
+#
+# It compares CONTENT, not the presence of paths. When the copies last drifted,
+# seven files existed on both sides with different contents, and every one was
+# a workflow the customer would run. A manifest of filenames would have
+# reported everything fine.
+#
+# It reports and never pushes. Updating the customer copy is a deliberate step,
+# which a maintainer approves.
+
+name: Template Drift Check
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'   # Mondays, 08:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  compare:
+    # Only the canonical copy on github.com. The `if:` is evaluated before a
+    # runner is allocated, so on the other copies the job is skipped and its
+    # `runs-on` label is never resolved. That matters on github.a8c.com, which
+    # serves no `ubuntu-latest`.
+    if: github.server_url == 'https://github.com' && github.repository == 'whyisjake/agentic-deployment-template'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out this copy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: canonical
+
+      - name: Fetch the customer copy
+        id: fetch
+        run: |
+          if ! git clone --quiet --depth 1 \
+              https://github.com/Automattic/agentic-deployment-template.git customer; then
+            echo "reachable=false" >> "$GITHUB_OUTPUT"
+            echo "Could not reach the customer copy. Reporting that, rather than reporting in-sync."
+            exit 0
+          fi
+          echo "reachable=true" >> "$GITHUB_OUTPUT"
+
+      - name: Compare the trees
+        id: compare
+        if: steps.fetch.outputs.reachable == 'true'
+        run: |
+          # Everything a customer repo receives. docs/ and the plan directory
+          # are deliberately excluded: they are prose, they drift for good
+          # reasons, and a diff there is noise rather than signal.
+          paths=(.github .claude scripts README.md AGENTS.md)
+
+          # diff needs pairs; do it per path so a missing directory on one side
+          # is reported rather than aborting the run.
+          report=""
+          for p in "${paths[@]}"; do
+            if [[ ! -e "canonical/$p" && ! -e "customer/$p" ]]; then continue; fi
+            if [[ ! -e "canonical/$p" ]]; then report+="only in the customer copy: $p"$'\n'; continue; fi
+            if [[ ! -e "customer/$p" ]]; then report+="only in the canonical copy: $p"$'\n'; continue; fi
+            if ! out="$(diff -ru "canonical/$p" "customer/$p" 2>&1)"; then
+              report+="$out"$'\n'
+            fi
+          done
+
+          if [[ -z "$report" ]]; then
+            echo "in_sync=true" >> "$GITHUB_OUTPUT"
+            echo "The two copies agree."
+          else
+            echo "in_sync=false" >> "$GITHUB_OUTPUT"
+            printf '%s\n' "$report" | head -200 > drift.txt
+            echo "The copies differ:"
+            cat drift.txt
+          fi
+
+      - name: File an issue when they differ
+        if: steps.compare.outputs.in_sync == 'false'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const drift = fs.readFileSync('drift.txt', 'utf8').slice(0, 55000);
+            const title = 'Template drift: the canonical and customer copies disagree';
+
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'template-drift', per_page: 20,
+            });
+            const body = [
+              'This copy and github.com/Automattic/agentic-deployment-template, the copy',
+              'the Codebase Manager scaffolds into customer repositories, have diverged.',
+              '',
+              'This matters because the customer copy is what gets installed, while tests',
+              'and every documented install path use this one. When the copies last',
+              'drifted, seven workflow files differed and nobody noticed for two merged',
+              'pull requests.',
+              '',
+              '<details><summary>Diff</summary>',
+              '',
+              '```diff',
+              drift,
+              '```',
+              '',
+              '</details>',
+              '',
+              'Resolve by fast-forwarding the customer copy from this one. If the',
+              'customer copy is ahead, find out why before overwriting anything.',
+            ].join('\n');
+
+            if (existing.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing[0].number,
+                body: `Still drifting as of this run.\n\n${body}`,
+              });
+              return;
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner, repo: context.repo.repo,
+              title, body, labels: ['template-drift'],
+            });
+
+      # Fail rather than warn. A green run here reads as "the copies agree", and
+      # when the customer copy is unreachable nothing was compared at all.
+      - name: Fail when the customer copy could not be checked
+        if: steps.fetch.outputs.reachable == 'false'
+        run: |
+          echo "::error::Could not reach the customer copy, so drift was not verified this run."
+          exit 1

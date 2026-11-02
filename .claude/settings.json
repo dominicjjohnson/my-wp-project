@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Bash(git *)",
+      "Bash(gh *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(wc *)",
+      "Bash(sort *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(echo *)",
+      "Bash(bash scripts/vip-validate-workflows.sh)"
+    ],
+    "deny": [
+      "Bash(git -c *)",
+      "Bash(git config *)",
+      "Bash(git remote *)",
+      "Bash(gh api *)",
+      "Bash(gh gist *)",
+      "Bash(gh alias *)",
+      "Bash(gh extension *)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(find *)",
+      "Bash(xargs *)"
+    ]
+  }
+}
