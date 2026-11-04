@@ -161,7 +161,9 @@ jobs:
         uses: ./.github/actions/vip-claude-run
         with:
           mode: plan
-          oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+          
           debug: ${{ vars.AGENT_DEBUG }}
           report_issue_number: ${{ github.event.issue.number }}
           github_token: ${{ github.token }}
@@ -202,7 +204,9 @@ jobs:
         uses: ./.github/actions/vip-claude-run
         with:
           mode: implement
-          oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          
           debug: ${{ vars.AGENT_DEBUG }}
           report_issue_number: ${{ github.event.issue.number }}
           github_token: ${{ github.token }}
