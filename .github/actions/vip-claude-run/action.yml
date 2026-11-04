@@ -26,8 +26,8 @@ description: >-
 # scripts/vip-validate-workflows.sh rejects one.
 
 inputs:
-  oauth_token:
-    description: "Claude Code OAuth token (from `claude setup-token`)."
+  anthropic_api_key:
+    description: "Anthropic API key."
     required: true
   prompt:
     description: >-
@@ -88,7 +88,7 @@ runs:
       id: claude
       uses: anthropics/claude-code-action@239e3a730883eeb5c53db12b0fc9573b3024b126 # v1.0.191
       with:
-        claude_code_oauth_token: ${{ inputs.oauth_token }}
+        anthropic_api_key: ${{ inputs.anthropic_api_key }}        
         prompt: ${{ inputs.prompt }}
         trigger_phrase: ${{ inputs.trigger_phrase }}
         additional_permissions: ${{ inputs.additional_permissions }}
